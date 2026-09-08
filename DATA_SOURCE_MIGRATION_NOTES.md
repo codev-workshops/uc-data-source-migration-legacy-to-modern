@@ -107,6 +107,16 @@ legacy helpers covered them.
   scale: `285000.00` where the legacy string produced `285000`, and `0.00` for zero late fees. The
   values are numerically identical; the characterization tests compare numbers with
   `BigDecimal.compareTo`, so scale is not part of the contract.
+- **Payment history is now chronological across years.** The legacy `PMT_DT` column was an
+  `MM/DD/YYYY` `VARCHAR`, so `OrderByPaymentDateDesc` sorted it lexicographically — for a history
+  spanning multiple years that put December of every year before November of every year, regardless
+  of year. The modern `DATE` column sorts chronologically, which is the intended contract
+  ("payment-date descending"). The seed data is entirely within 2025, so no current response
+  changes; the legacy lexicographic order is deliberately not reproduced.
+- **Null payment components still render as `0`.** `principal_amount`, `interest_amount`,
+  `escrow_amount`, and `late_fee` are nullable in the modern schema, while the legacy
+  `parseLegacyAmount` turned null/blank into `BigDecimal.ZERO`; `LoanService` coalesces them to zero
+  so the API never starts emitting `null` where it used to emit a number.
 - Nothing else in the responses changed: property names, JSON types, labels, date strings, payment
   ids, and payment ordering are all identical to the legacy baseline captured in
   `src/test/resources/golden/`.

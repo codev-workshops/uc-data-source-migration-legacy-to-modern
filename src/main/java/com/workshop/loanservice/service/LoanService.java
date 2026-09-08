@@ -12,6 +12,7 @@ import com.workshop.loanservice.repository.LoanAccountRepository;
 import com.workshop.loanservice.repository.PaymentRepository;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -146,13 +147,17 @@ public class LoanService {
         dto.setLoanAccountNumber(payment.getLoanAccount().getAccountNumber());
         dto.setPaymentDate(formatApiDate(payment.getPaymentDate()));
         dto.setTotalAmount(payment.getTotalAmount());
-        dto.setPrincipalAmount(payment.getPrincipalAmount());
-        dto.setInterestAmount(payment.getInterestAmount());
-        dto.setEscrowAmount(payment.getEscrowAmount());
-        dto.setLateFee(payment.getLateFee());
+        dto.setPrincipalAmount(orZero(payment.getPrincipalAmount()));
+        dto.setInterestAmount(orZero(payment.getInterestAmount()));
+        dto.setEscrowAmount(orZero(payment.getEscrowAmount()));
+        dto.setLateFee(orZero(payment.getLateFee()));
         dto.setType(label(PAYMENT_TYPE_LABELS, payment.getType()));
         dto.setStatus(label(PAYMENT_STATUS_LABELS, payment.getStatus()));
         return dto;
+    }
+
+    private BigDecimal orZero(BigDecimal amount) {
+        return amount != null ? amount : BigDecimal.ZERO;
     }
 
     private String formatApiDate(LocalDate date) {
