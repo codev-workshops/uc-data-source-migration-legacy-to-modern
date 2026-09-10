@@ -6,6 +6,13 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+/**
+ * Legacy CDW source repository, read only by {@link com.workshop.loanservice.migration.DataMigrationService}
+ * at startup. Runtime code must use {@link LoanAccountRepository} instead.
+ *
+ * @deprecated retained solely as migration input; use {@link LoanAccountRepository}.
+ */
+@Deprecated
 @Repository
 public interface LegacyLoanAccountRepository extends JpaRepository<LegacyLoanAccount, String> {
 
