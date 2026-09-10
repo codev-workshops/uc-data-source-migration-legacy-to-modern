@@ -38,3 +38,10 @@ key order preserved, numbers unchanged).
 - Numeric fields are JSON numbers with legacy scale (e.g. `285000`, `4.75`).
 - List ordering follows legacy `findAll()` (insertion order) for loans/borrowers
   and payment date descending for payments.
+
+## Session 4 validation
+
+`GoldenBaselineApiTest` replays every file here against the modern-backed API;
+`MigrationIntegrityTest` checks FK integrity, row counts and allowed code sets.
+See `GOLDEN_DIFFERENCES.md` for the documented storage-vs-presentation differences
+and the field-specific normalizers used in the comparison.
