@@ -25,6 +25,9 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "external_id", length = 20, nullable = false, unique = true)
+    private String externalId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "loan_account_id", nullable = false)
     private LoanAccount loanAccount;
@@ -67,6 +70,8 @@ public class Payment {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public LoanAccount getLoanAccount() { return loanAccount; }
     public void setLoanAccount(LoanAccount loanAccount) { this.loanAccount = loanAccount; }
     public LocalDate getPaymentDate() { return paymentDate; }
