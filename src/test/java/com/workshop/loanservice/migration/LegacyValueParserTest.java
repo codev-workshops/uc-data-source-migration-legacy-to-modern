@@ -42,6 +42,7 @@ class LegacyValueParserTest {
     @Test
     void malformedValuesThrow() {
         assertThrows(IllegalArgumentException.class, () -> LegacyValueParser.date("2019-03-15"));
+        assertThrows(IllegalArgumentException.class, () -> LegacyValueParser.date("02/30/2025"));
         assertThrows(IllegalArgumentException.class, () -> LegacyValueParser.amount("1,2x"));
         assertThrows(IllegalArgumentException.class, () -> LegacyValueParser.integer("36O"));
     }

@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.Map;
 
 /**
@@ -14,7 +15,8 @@ import java.util.Map;
  */
 final class LegacyValueParser {
 
-    private static final DateTimeFormatter LEGACY_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+    private static final DateTimeFormatter LEGACY_DATE = DateTimeFormatter.ofPattern("MM/dd/uuuu")
+            .withResolverStyle(ResolverStyle.STRICT);
 
     private static final Map<String, String> LOAN_STATUS = Map.of(
             "ACT", "ACTIVE", "CLO", "CLOSED", "DFT", "DEFAULT", "FRB", "FORBEARANCE");

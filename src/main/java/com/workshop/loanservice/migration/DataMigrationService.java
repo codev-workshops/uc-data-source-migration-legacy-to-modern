@@ -23,7 +23,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -53,13 +54,15 @@ public class DataMigrationService implements ApplicationRunner {
     private final LoanProductRepository products;
     private final LoanAccountRepository accounts;
     private final PaymentRepository payments;
+    private final TransactionTemplate transaction;
 
     private MigrationReport lastReport;
 
     public DataMigrationService(LegacyBorrowerRepository legacyBorrowers, LegacyLoanProductRepository legacyProducts,
                                 LegacyLoanAccountRepository legacyAccounts, LegacyPaymentRepository legacyPayments,
                                 BorrowerRepository borrowers, LoanProductRepository products,
-                                LoanAccountRepository accounts, PaymentRepository payments) {
+                                LoanAccountRepository accounts, PaymentRepository payments,
+                                PlatformTransactionManager transactionManager) {
         this.legacyBorrowers = legacyBorrowers;
         this.legacyProducts = legacyProducts;
         this.legacyAccounts = legacyAccounts;
@@ -68,6 +71,7 @@ public class DataMigrationService implements ApplicationRunner {
         this.products = products;
         this.accounts = accounts;
         this.payments = payments;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -84,13 +88,16 @@ public class DataMigrationService implements ApplicationRunner {
 
     public MigrationReport getLastReport() { return lastReport; }
 
-    /** Idempotent: does nothing if any modern table already holds data. */
-    @Transactional
+    /** Idempotent: does nothing if any modern table already holds data. Runs in a single transaction. */
     public MigrationReport migrate() {
+        return lastReport = transaction.execute(status -> doMigrate());
+    }
+
+    private MigrationReport doMigrate() {
         MigrationReport report = new MigrationReport();
         if (borrowers.count() > 0 || products.count() > 0 || accounts.count() > 0 || payments.count() > 0) {
             report.markSkipped();
-            return lastReport = report;
+            return report;
         }
 
         Map<String, Borrower> borrowerByExtId = new HashMap<>();
@@ -120,7 +127,7 @@ public class DataMigrationService implements ApplicationRunner {
         migrateTable(report, "payments", legacyPayments.findAll(), LegacyPayment::getPaymentSequenceNumber, LegacyPayment::getTotalAmount,
                 payments, Payment::getTotalAmount, src -> toPayment(src, accountByNumber));
 
-        return lastReport = report;
+        return report;
     }
 
     private <S, T> void migrateTable(MigrationReport report, String table, List<S> sources,
@@ -134,13 +141,14 @@ public class DataMigrationService implements ApplicationRunner {
             String key = text(sourceKey.apply(src));
             try {
                 if (key == null) throw new IllegalArgumentException("Missing business key");
-                if (!seen.add(key)) {
+                if (seen.contains(key)) {
                     dupes++;
                     log.warn("Skipping duplicate {} row {}", table, key);
                     continue;
                 }
                 BigDecimal amt = amount(sourceAmount.apply(src));
                 target.save(transform.apply(src));
+                seen.add(key);
                 migrated++;
                 if (amt != null) sourceSum = sourceSum.add(amt);
             } catch (RuntimeException e) {
