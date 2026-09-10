@@ -1,68 +1,79 @@
 # Data Source Migration: Legacy to Modern
 
-A small Spring Boot loan management application that currently connects to a **legacy data warehouse** (simulated via H2 with legacy-style schemas). The workshop challenge is to migrate the data source to a **modern schema** while keeping the application functional.
+A small Spring Boot loan management application that has been migrated from a **legacy data warehouse** (CDW-style, all-VARCHAR tables) to a **modern normalized schema**. The API contract is unchanged; the service layer now reads only from the modern tables.
+
+See [`DATA_SOURCE_MIGRATION_NOTES.md`](DATA_SOURCE_MIGRATION_NOTES.md) for the full migration write-up.
 
 ## Overview
 
-This app manages loan data: borrowers, loan products, loan accounts, and payment history. It currently reads from legacy tables with denormalized structures, cryptic column names, and outdated patterns. The goal is to rewire it to use a normalized modern schema with clear naming conventions.
+This app manages loan data: borrowers, loan products, loan accounts, and payment history. Data lives in normalized tables with typed columns (`DATE`, `DECIMAL`, `BOOLEAN`, integer FKs) and clear naming. The legacy CDW tables are still loaded into the same in-memory H2 instance, but only as the *input* of a one-shot startup migration (`migration/DataMigrationService`) that populates the modern tables.
 
 ## Architecture
 
 ```
-┌─────────────────────────────┐
-│   Loan Service (Spring Boot)│
-│                             │
-│  Controllers ─► Services    │
-│                  │          │
-│              Repositories   │
-│                  │          │
-│         Legacy DataSource   │  ← YOU ARE HERE
-│         (H2 / legacy schema)│
-│                             │
-│         Modern DataSource   │  ← MIGRATE TO HERE
-│         (H2 / modern schema)│
-└─────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│   Loan Service (Spring Boot)                │
+│                                             │
+│  Controllers ─► LoanService ─► ApiLabels    │
+│                     │                       │
+│         Modern repositories (JPA)           │
+│                     │                       │
+│         Modern schema (H2)      ◄── RUNTIME │
+│   borrowers / loan_products /               │
+│   loan_accounts / payments                  │
+│                     ▲                       │
+│         DataMigrationService (startup)      │
+│                     ▲                       │
+│         Legacy CDW tables (H2)  ◄── INPUT   │
+│   CDW_BORR_MSTR / CDW_LN_PROD /             │
+│   CDW_LN_ACCT / CDW_PMT_HIST                │
+└─────────────────────────────────────────────┘
 ```
 
-## Current State (Legacy)
+## Data Source (Modern)
 
-The app connects to legacy tables:
-- `CDW_BORR_MSTR` — Borrower master (denormalized, cryptic columns)
-- `CDW_LN_PROD` — Loan products
-- `CDW_LN_ACCT` — Loan accounts (wide table with embedded borrower data)
-- `CDW_PMT_HIST` — Payment history
-
-See `data/legacy-schema/` for full DDL and `data/mappings/` for column-level mappings.
-
-## Target State (Modern)
-
-Migrate to normalized tables:
+The app connects to normalized tables (`src/main/resources/schema-modern.sql`, design copy in `data/modern-schema/`):
 - `borrowers` — Clean borrower records
 - `loan_products` — Product catalog
-- `loan_accounts` — Normalized loan accounts with foreign keys
-- `payments` — Payment records
+- `loan_accounts` — Loan accounts with foreign keys to borrowers and products
+- `payments` — Payment records with a foreign key to loan accounts
 
-See `data/modern-schema/` for target DDL.
+Stored codes are UPPERCASE tokens (`ACTIVE`, `SINGLE_FAMILY`, `POSTED`); `service/ApiLabels` maps them back to the legacy API presentation (title-case labels, `MM/dd/yyyy` dates).
+
+## Legacy Input (Migration Only)
+
+`schema-legacy.sql` + `data-legacy.sql` seed the CDW tables (`CDW_BORR_MSTR`, `CDW_LN_PROD`, `CDW_LN_ACCT`, `CDW_PMT_HIST`). `Legacy*` entities and repositories are `@Deprecated` and read only by `DataMigrationService`. See `data/legacy-schema/` for the DDL and `data/mappings/` for column-level mappings.
 
 ## Quick Start
 
 ```bash
-./mvnw spring-boot:run
+mvn -B spring-boot:run
 ```
 
 The app runs on `http://localhost:8080` with endpoints:
 - `GET /api/loans` — List all loans
-- `GET /api/loans/{id}` — Get loan details
+- `GET /api/loans/{id}` — Get loan details (404 if unknown)
+- `GET /api/loans/{loanId}/payments` — Payment history for a loan (404 if unknown)
 - `GET /api/borrowers` — List borrowers
-- `GET /api/borrowers/{id}` — Get borrower with loans
-- `GET /api/payments/loan/{loanId}` — Payment history for a loan
+- `GET /api/borrowers/{id}` — Get borrower with loans (404 if unknown)
+
+IDs are formatted strings (e.g. borrower `B-10001`, loan `LN-2019-00142`).
+
+## Build & Test
+
+```bash
+mvn -B clean package
+mvn -B test
+```
+
+Tests replay the API against golden baseline responses captured from the legacy app (`src/test/resources/golden/`) and verify migration integrity (row counts, FK resolution, allowed code sets).
 
 ## Tech Stack
 
 - Java 17
 - Spring Boot 3.2
 - Spring Data JPA
-- H2 (in-memory, simulating legacy DW)
+- H2 (in-memory)
 - Maven
 
 ## License
