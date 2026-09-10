@@ -24,6 +24,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -39,7 +40,8 @@ import static com.workshop.loanservice.migration.LegacyValueParser.*;
 /**
  * One-shot legacy CDW -> modern schema migration, run at startup. Rows are inserted in FK order
  * (borrowers, loan_products, loan_accounts, payments); rows that fail validation or transformation
- * are quarantined in the {@link MigrationReport} instead of aborting the batch.
+ * are quarantined in the {@link MigrationReport} instead of aborting the batch. Each row is inserted in
+ * its own transaction so a database-rejected row cannot poison the rows already accepted.
  */
 @Service
 public class DataMigrationService implements ApplicationRunner {
@@ -54,7 +56,7 @@ public class DataMigrationService implements ApplicationRunner {
     private final LoanProductRepository products;
     private final LoanAccountRepository accounts;
     private final PaymentRepository payments;
-    private final TransactionTemplate transaction;
+    private final TransactionTemplate rowTransaction;
 
     private MigrationReport lastReport;
 
@@ -71,7 +73,8 @@ public class DataMigrationService implements ApplicationRunner {
         this.products = products;
         this.accounts = accounts;
         this.payments = payments;
-        this.transaction = new TransactionTemplate(transactionManager);
+        this.rowTransaction = new TransactionTemplate(transactionManager);
+        this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -88,16 +91,12 @@ public class DataMigrationService implements ApplicationRunner {
 
     public MigrationReport getLastReport() { return lastReport; }
 
-    /** Idempotent: does nothing if any modern table already holds data. Runs in a single transaction. */
+    /** Idempotent: does nothing if any modern table already holds data. */
     public MigrationReport migrate() {
-        return lastReport = transaction.execute(status -> doMigrate());
-    }
-
-    private MigrationReport doMigrate() {
         MigrationReport report = new MigrationReport();
         if (borrowers.count() > 0 || products.count() > 0 || accounts.count() > 0 || payments.count() > 0) {
             report.markSkipped();
-            return report;
+            return lastReport = report;
         }
 
         Map<String, Borrower> borrowerByExtId = new HashMap<>();
@@ -127,7 +126,7 @@ public class DataMigrationService implements ApplicationRunner {
         migrateTable(report, "payments", legacyPayments.findAll(), LegacyPayment::getPaymentSequenceNumber, LegacyPayment::getTotalAmount,
                 payments, Payment::getTotalAmount, src -> toPayment(src, accountByNumber));
 
-        return report;
+        return lastReport = report;
     }
 
     private <S, T> void migrateTable(MigrationReport report, String table, List<S> sources,
@@ -147,7 +146,7 @@ public class DataMigrationService implements ApplicationRunner {
                     continue;
                 }
                 BigDecimal amt = amount(sourceAmount.apply(src));
-                target.save(transform.apply(src));
+                rowTransaction.executeWithoutResult(status -> target.saveAndFlush(transform.apply(src)));
                 seen.add(key);
                 migrated++;
                 if (amt != null) sourceSum = sourceSum.add(amt);
@@ -157,7 +156,6 @@ public class DataMigrationService implements ApplicationRunner {
                 log.warn("Quarantined {} row {}: {}", table, key, e.getMessage());
             }
         }
-        target.flush();
         BigDecimal targetSum = target.findAll().stream().map(targetAmount)
                 .filter(v -> v != null).reduce(BigDecimal.ZERO, BigDecimal::add);
         report.addTable(new TableStats(table, sources.size(), migrated, dupes, quarantined,
